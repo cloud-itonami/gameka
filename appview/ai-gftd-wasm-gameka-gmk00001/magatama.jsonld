@@ -1,0 +1,21 @@
+{
+  "@context": "https://gftd.ai/ns/magatama/v1",
+  "@id": "did:web:gameka.gftd.ai",
+  "component": { "env": {}, "path": "src/app.cljc" },
+  "deploy": {},
+  "name": "ai-gftd-wasm-gameka",
+  "nanoid": "gmk00001",
+  "performerType": "service",
+  "profile": {
+    "agentType": "reactive",
+    "capabilities": ["edge-assets", "bpmn-dispatch"],
+    "description": "UI-less gameSpec backend generation actor (invoked pod-to-pod by lg-shinshi). Produced ai.gftd.gameka.gameSpec records persist to Cloudflare D1 (ai-gftd-gameka).",
+    "displayName": "Gameka",
+    "isBot": true
+  },
+  "project": "gameka",
+  "routes": [{ "host": "gameka.gftd.ai", "paths": ["/"], "tls": true }],
+  "runtimeType": "worker",
+  "build": { "guestLanguage": "ts", "role": "thin-edge" },
+  "uiType": "appview"
+}

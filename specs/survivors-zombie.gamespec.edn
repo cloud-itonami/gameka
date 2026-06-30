@@ -1,0 +1,144 @@
+;; ai.gftd.gameka.gameSpec — EDN canonical form (kotoba datomic native).
+;;
+;; Why EDN (not JSON):
+;;   1. EDN distinguishes integer 12 from float 12.0 at the TYPE level, so the
+;;      "integers only" AT-Lexicon rule (dmg=int, ms, px, permille) is enforced
+;;      by the reader, not a lint pass. A fractional literal is a schema error
+;;      the moment kotoba reads it.
+;;   2. Namespaced keywords (:weapon/base-dmg, :enemy/hp ...) ARE Datomic
+;;      attributes. Each entity map below is a datom set: kotoba `assert_quad`
+;;      ingests it directly, no JSON→datom shim.
+;;
+;; Datomic ingestion: :weapon/id :enemy/id :boss/id :passive/id are
+;; :db.unique/identity, so every entity map UPSERTS by its id (no tempids).
+;; The survivors-runtime reads the same EDN literal at play time.
+;;
+;; Units: ms = milliseconds, px = pixels, px/s = pixels/second,
+;;        permille = ‰ (0-1000). All numerics are EDN longs (no floats).
+
+{:gamespec/id     "survivors-zombie-v1"
+ :gamespec/title  "DEADLINE: 夜明けまで"
+ :gamespec/slug   "survivors-zombie"
+ :gamespec/genre  "survivors"
+ :gamespec/runtime "survivors-runtime"   ; shared WASM; this spec is just data
+
+ :scene
+ {:scene/biome        "ruined-city-night"
+  :scene/tilemap      "asphalt-rubble-32"
+  :scene/palette      "neon-blood"
+  :scene/camera       "topdown-follow"
+  :scene/lighting     "dynamic-flashlight"
+  :scene/fog-radius-px 360
+  :scene/sprite-atlas "zombie-pack-v1"}
+
+ :mechanic
+ {:controls "twin-stick-autofire"
+  :loop     "move-only; weapons auto-fire. pick XP gems → level-up → 3-choice draft"
+  :win      {:win/survive-ms 900000}
+  :lose     {:lose/all-players-down true}
+
+  ;; (a) balance baseline — all weapon DPS / enemy threat derive from this.
+  :player
+  {:player/max-hp             100
+   :player/move-speed-px      105
+   :player/pickup-radius-px   55
+   :player/contact-iframe-ms  500
+   :player/revive-hp-permille 500
+   :player/crit-chance-permille 50
+   :player/crit-mult-permille 2000}
+
+  ;; night raises spawn+speed in permille → this IS the wave-escalation driver.
+  :day-cycle
+  {:day-cycle/phase-ms 120000
+   :day-cycle/night-rage-windows-ms [[300000 360000] [600000 690000] [840000 900000]]
+   :day-cycle/night-rage-speed-permille 1300
+   :day-cycle/night-rage-spawn-permille 1500}
+
+  :weapons
+  [{:weapon/id "pistol"   :weapon/base-dmg 12 :weapon/cooldown-ms 700  :weapon/shape "bullet"        :weapon/pierce 1
+    :weapon/evolves-to "smg"     :weapon/merge-passive "extended-mag"}
+   {:weapon/id "smg"      :weapon/base-dmg 9  :weapon/cooldown-ms 180  :weapon/shape "bullet-spray"  :weapon/pierce 1}
+   {:weapon/id "machete"  :weapon/base-dmg 28 :weapon/cooldown-ms 900  :weapon/shape "arc"           :weapon/range-px 90
+    :weapon/evolves-to "chainsaw" :weapon/merge-passive "grip-tape"}
+   {:weapon/id "chainsaw" :weapon/base-dmg 18 :weapon/cooldown-ms 120  :weapon/shape "sustained-arc" :weapon/range-px 110}
+   {:weapon/id "molotov"  :weapon/base-dmg 14 :weapon/cooldown-ms 2400 :weapon/shape "aoe-fire"      :weapon/radius-px 130 :weapon/dot-ms 3000
+    :weapon/evolves-to "napalm"  :weapon/merge-passive "oil-can"}
+   {:weapon/id "napalm"   :weapon/base-dmg 22 :weapon/cooldown-ms 2000 :weapon/shape "aoe-fire-wall" :weapon/radius-px 170 :weapon/dot-ms 5000}
+   {:weapon/id "nailgun"  :weapon/base-dmg 16 :weapon/cooldown-ms 500  :weapon/shape "bullet"        :weapon/pierce 3}
+   {:weapon/id "deploy-turret" :weapon/base-dmg 10 :weapon/cooldown-ms 8000 :weapon/shape "summon-turret" :weapon/duration-ms 12000}]
+
+  :passives
+  [{:passive/id "extended-mag" :passive/effect "cooldown-15%"}
+   {:passive/id "grip-tape"    :passive/effect "melee-range+20%"}
+   {:passive/id "oil-can"      :passive/effect "fire-dot+50%"}
+   {:passive/id "kevlar"       :passive/effect "max-hp+40"}
+   {:passive/id "adrenaline"   :passive/effect "move-speed+12%"}
+   {:passive/id "scavenger"    :passive/effect "xp-gain+25%"}
+   {:passive/id "first-aid"    :passive/effect "regen-1hp-per-3000ms"}]
+
+  :enemies
+  [{:enemy/id "shambler" :enemy/hp 18  :enemy/speed 45  :enemy/dmg 6  :enemy/xp 1 :enemy/spawn-weight 100}
+   {:enemy/id "runner"   :enemy/hp 12  :enemy/speed 130 :enemy/dmg 8  :enemy/xp 2 :enemy/spawn-weight 45 :enemy/min-ms 120000}
+   {:enemy/id "spitter"  :enemy/hp 22  :enemy/speed 60  :enemy/dmg 10 :enemy/xp 3 :enemy/spawn-weight 20 :enemy/min-ms 180000
+    :enemy/ranged {:ranged/proj-speed-px 180 :ranged/range-px 320}}
+   {:enemy/id "brute"    :enemy/hp 220 :enemy/speed 50  :enemy/dmg 24 :enemy/xp 12 :enemy/spawn-weight 8 :enemy/min-ms 300000
+    :enemy/knockback-resist-permille 800}
+   {:enemy/id "screamer" :enemy/hp 30  :enemy/speed 70  :enemy/dmg 4  :enemy/xp 6 :enemy/spawn-weight 5 :enemy/min-ms 240000
+    :enemy/on-alive "summon shambler x6 every 5000ms"}]
+
+  ;; (b) bosses are phase-gated movesets with telegraphed (dodgeable) attacks,
+  ;; not HP bags. Phases switch on :phase/until-hp-permille.
+  :bosses
+  [{:boss/id "tank" :boss/at-ms 300000 :boss/hp 4200 :boss/speed 42 :boss/contact-dmg 30 :boss/xp 200 :boss/drop "chest-weapon"
+    :boss/phases
+    [{:phase/until-hp-permille 600
+      :phase/moveset
+      [{:move/id "charge"       :move/telegraph-ms 700 :move/dash-speed-px 360 :move/dash-ms 600 :move/dmg 45 :move/cooldown-ms 4000}
+       {:move/id "ground-pound" :move/telegraph-ms 600 :move/shape "aoe-ring" :move/radius-px 160 :move/dmg 35 :move/cooldown-ms 5000}]}
+     {:phase/until-hp-permille 0 :phase/enrage true
+      :phase/moveset
+      [{:move/id "charge" :move/telegraph-ms 500 :move/dash-speed-px 430 :move/dash-ms 600 :move/dmg 50 :move/cooldown-ms 2800}
+       {:move/id "summon" :move/summon-id "runner" :move/count 4 :move/cooldown-ms 6000}]}]}
+
+   {:boss/id "horde-mother" :boss/at-ms 600000 :boss/hp 9500 :boss/speed 34 :boss/contact-dmg 40 :boss/xp 400 :boss/drop "chest-evolution"
+    :boss/phases
+    [{:phase/until-hp-permille 500
+      :phase/moveset
+      [{:move/id "spawn-wave" :move/summon-id "runner" :move/count 3 :move/cooldown-ms 3000}
+       {:move/id "bile-ring"  :move/telegraph-ms 800 :move/shape "radial-bullets" :move/bullet-count 12 :move/proj-speed-px 170 :move/dmg 18 :move/cooldown-ms 6000}]}
+     {:phase/until-hp-permille 0 :phase/enrage true
+      :phase/moveset
+      [{:move/id "spawn-wave"  :move/summon-id "spitter" :move/count 2 :move/cooldown-ms 3000}
+       {:move/id "bile-spiral" :move/telegraph-ms 600 :move/shape "spiral-bullets" :move/bullet-count 24 :move/proj-speed-px 150 :move/rotate-deg 15 :move/dmg 18 :move/cooldown-ms 4500}]}]}
+
+   ;; scripted finale, not a boss: force max spawn pressure, survive = win.
+   {:boss/id "dawn-swarm" :boss/at-ms 870000 :boss/finale true
+    :boss/finale {:finale/force-spawn-interval-ms 250 :finale/spawn-from "all-edges" :finale/duration-ms 30000}}]
+
+  :waves
+  {:waves/escalation "per-minute"
+   :waves/density-curve "exp"
+   :waves/base-spawn-interval-ms 1200
+   :waves/min-spawn-interval-ms 250
+   :waves/max-alive 400}
+
+  :xp
+  {:xp/gem-pickup-radius-px 60
+   :xp/level-curve "quadratic"
+   :xp/choices-per-level 3}
+
+  ;; enemy state is never sent — shared-seed determinism + input. These are
+  ;; rules only. max-players<=4 (WebRTC mesh); more players → async leaderboard.
+  :coop
+  {:coop/max-players 4
+   :coop/shared-seed true
+   :coop/revive-ms 4000
+   :coop/revive-range-px 80
+   :coop/down-state-ms 15000
+   :coop/xp-share "pooled"
+   :coop/weapon-synergy true
+   :coop/synergy-pairs
+   [{:synergy/a "molotov" :synergy/b "chainsaw" :synergy/bonus "burning enemies take +50% melee"}
+    {:synergy/a "deploy-turret" :synergy/b "nailgun" :synergy/bonus "enemies in turret range get +2 pierce"}]
+   :coop/supply-drops
+   {:supply/interval-ms 90000 :supply/contest true}}}}

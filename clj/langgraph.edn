@@ -1,0 +1,10 @@
+{:app "gameka.gftd.ai"
+ :impl :clj
+ :graphs
+ {"ai.gftd.apps.gameka.health" gameka.graphs.registry/health
+  "ai.gftd.apps.gameka.generate" gameka.graphs.registry/generate
+  "ai.gftd.apps.gameka.proposeSpec" gameka.graphs.registry/propose-spec
+  "ai.gftd.gameka.proposeGame" gameka.graphs.registry/propose-spec
+  "ai.gftd.gameka.generateGame" gameka.graphs.registry/generate-game
+  "ai.gftd.gameka.playtestGame" gameka.graphs.registry/playtest-game
+  "ai.gftd.gameka.publishGame" gameka.graphs.registry/publish-game}}

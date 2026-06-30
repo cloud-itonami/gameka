@@ -1,0 +1,41 @@
+(ns gameka.server-test
+  (:require [clojure.test :refer [deftest is]]
+            [jsonista.core :as j]
+            [gameka.server :as server]))
+
+(defn- req
+  ([method uri] (req method uri nil))
+  ([method uri body]
+   (server/app
+    (cond-> {:request-method method
+             :uri uri
+             :headers {"accept" "application/json"}}
+      body (assoc :headers {"accept" "application/json" "content-type" "application/json"}
+                  :body (java.io.ByteArrayInputStream. (.getBytes (j/write-value-as-string body))))))))
+
+(defn- json-body [resp]
+  (j/read-value (:body resp) j/keyword-keys-object-mapper))
+
+(deftest health-and-ok
+  (doseq [uri ["/" "/ok" "/health"]]
+    (let [resp (req :get uri)
+          body (json-body resp)]
+      (is (= 200 (:status resp)))
+      (is (= true (:ok body)))
+      (is (= #{"health" "generate" "propose_spec" "generate_game" "playtest_game" "publish_game"}
+             (set (:graphs body)))))))
+
+(deftest runs-and-xrpc
+  (let [runs (req :post "/runs" {:assistant_id "generate" :input {:prompt "x"}})
+        xrpc (req :post "/xrpc/ai.gftd.apps.gameka.generate" {:prompt "x"})
+        loop-xrpc (req :post "/xrpc/ai.gftd.gameka.proposeGame" {:brief "zombie mall survivors"})]
+    (is (= 200 (:status runs)))
+    (is (= "not-implemented" (:status (json-body runs))))
+    (is (= 200 (:status xrpc)))
+    (is (= "not-implemented" (:status (json-body xrpc))))
+    (is (= 200 (:status loop-xrpc)))
+    (is (= "zombie-mall-survivors-v1" (:specId (json-body loop-xrpc))))))
+
+(deftest unknowns-404
+  (is (= 404 (:status (req :post "/runs" {:assistant_id "nope" :input {}}))))
+  (is (= 404 (:status (req :post "/xrpc/ai.gftd.apps.gameka.nope" {})))))

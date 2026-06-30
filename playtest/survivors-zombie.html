@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>DEADLINE: 夜明けまで — survivors-runtime P0 (zombie gameSpec)</title>
+<style>
+  :root { color-scheme: dark; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#07090d;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; color:#e8eef7; }
+  #c { display:block; width:100vw; height:100vh; image-rendering:pixelated; cursor:none; }
+  #overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    pointer-events:none; }
+  .panel { pointer-events:auto; background:rgba(8,12,20,.92); border:1px solid #1f2c3f;
+    border-radius:14px; padding:26px 30px; max-width:560px; box-shadow:0 20px 60px rgba(0,0,0,.6);
+    backdrop-filter:blur(6px); }
+  h1 { margin:0 0 4px; font-size:22px; letter-spacing:.5px; }
+  h1 .sub { display:block; font-size:12px; color:#7d8aa0; font-weight:400; margin-top:6px; letter-spacing:0; }
+  .draft { display:flex; gap:12px; margin-top:14px; }
+  .card { flex:1; background:#0d1422; border:1px solid #243348; border-radius:10px; padding:14px 12px;
+    cursor:pointer; transition:.12s; text-align:center; }
+  .card:hover { border-color:#ff4d4d; background:#16202f; transform:translateY(-2px); }
+  .card .ic { font-size:30px; line-height:1; }
+  .card .nm { font-weight:700; margin-top:8px; font-size:13px; }
+  .card .ds { font-size:11px; color:#8a98ad; margin-top:5px; min-height:28px; }
+  .card .lv { font-size:10px; color:#ff7a45; margin-top:6px; letter-spacing:.5px; }
+  button.go { pointer-events:auto; margin-top:18px; background:#ff3b3b; color:#fff; border:0;
+    padding:12px 26px; font-size:15px; border-radius:10px; cursor:pointer; font-weight:700;
+    font-family:inherit; letter-spacing:.5px; }
+  button.go:hover { background:#ff5a5a; }
+  .hint { font-size:12px; color:#67748a; margin-top:12px; line-height:1.6; }
+  .big { font-size:34px; margin:0 0 6px; }
+  .tag { display:inline-block; font-size:10px; color:#9fb0c6; border:1px solid #2a3a52;
+    border-radius:20px; padding:3px 10px; margin-top:10px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="overlay"></div>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// survivors-runtime (P0 JS prototype). The genre logic below is GENERIC; the
+// specific game is the SPEC object — exactly the "runtime interprets gameSpec
+// data" model from 90-docs/260606-gameka-survivors-social-design.md. The
+// production runtime is kami WASM reading the EDN; this reads the same values.
+// units: ms, px, px/s, permille(‰). integers only (mirrors the EDN longs).
+// ─────────────────────────────────────────────────────────────────────────────
+const SPEC = {
+  title: "DEADLINE: 夜明けまで",
+  win: { survive_ms: 900000 },
+  player: { max_hp:100, move_speed_px:105, pickup_radius_px:55, contact_iframe_ms:500,
+            crit_chance_permille:50, crit_mult_permille:2000 },
+  day_cycle: { night_rage_windows_ms:[[300000,360000],[600000,690000],[840000,900000]],
+               night_rage_speed_permille:1300, night_rage_spawn_permille:1500 },
+  weapons: [
+    { id:"pistol",   icon:"🔫", base_dmg:12, cooldown_ms:700,  shape:"bullet",        pierce:1, evolves_to:"smg",     merge_passive:"extended-mag" },
+    { id:"smg",      icon:"💨", base_dmg:9,  cooldown_ms:180,  shape:"bullet_spray",  pierce:1 },
+    { id:"machete",  icon:"🔪", base_dmg:28, cooldown_ms:900,  shape:"arc", range_px:90, evolves_to:"chainsaw", merge_passive:"grip-tape" },
+    { id:"chainsaw", icon:"🪚", base_dmg:18, cooldown_ms:120,  shape:"sustained_arc", range_px:110 },
+    { id:"molotov",  icon:"🔥", base_dmg:14, cooldown_ms:2400, shape:"aoe_fire", radius_px:130, dot_ms:3000, evolves_to:"napalm", merge_passive:"oil-can" },
+    { id:"napalm",   icon:"☄️", base_dmg:22, cooldown_ms:2000, shape:"aoe_fire", radius_px:170, dot_ms:5000 },
+    { id:"nailgun",  icon:"📌", base_dmg:16, cooldown_ms:500,  shape:"bullet", pierce:3 },
+    { id:"turret",   icon:"🛡️", base_dmg:10, cooldown_ms:8000, shape:"summon_turret", duration_ms:12000 },
+  ],
+  passives: [
+    { id:"extended-mag", icon:"🧲", effect:"発射間隔 -15%" },
+    { id:"grip-tape",    icon:"🤜", effect:"近接射程 +20%" },
+    { id:"oil-can",      icon:"🛢️", effect:"炎ダメージ +50%" },
+    { id:"kevlar",       icon:"🦺", effect:"最大HP +40" },
+    { id:"adrenaline",   icon:"⚡", effect:"移動速度 +12%" },
+    { id:"scavenger",    icon:"💎", effect:"獲得XP +25%" },
+    { id:"first-aid",    icon:"➕", effect:"3秒ごとHP+1 回復" },
+  ],
+  enemies: [
+    { id:"shambler", icon:"🧟", hp:18,  speed:45,  dmg:6,  xp:1,  weight:100, color:"#6bbf59", r:13 },
+    { id:"runner",   icon:"🧟‍♂️", hp:12, speed:130, dmg:8,  xp:2,  weight:45,  min_ms:120000, color:"#c0e85a", r:11 },
+    { id:"spitter",  icon:"🤮", hp:22,  speed:60,  dmg:10, xp:3,  weight:20,  min_ms:180000, color:"#9be0a0", r:14, ranged:{proj_speed:180,range:320} },
+    { id:"brute",    icon:"👹", hp:220, speed:50,  dmg:24, xp:12, weight:8,   min_ms:300000, color:"#3f8f4f", r:24 },
+    { id:"screamer", icon:"📢", hp:30,  speed:70,  dmg:4,  xp:6,  weight:5,   min_ms:240000, color:"#e0d05a", r:15, summon:"shambler" },
+  ],
+  bosses: [
+    { id:"tank",         at_ms:300000, hp:4200, speed:42, contact_dmg:30, xp:200, r:46, color:"#2f7d3f", icon:"🟢" },
+    { id:"horde-mother", at_ms:600000, hp:9500, speed:34, contact_dmg:40, xp:400, r:54, color:"#7a3f8f", icon:"🟣", bile:true },
+    { id:"dawn-swarm",   at_ms:870000, finale:true, force_spawn_ms:250 },
+  ],
+  waves: { base_spawn_interval_ms:1200, min_spawn_interval_ms:250, max_alive:280 },
+  xp: { choices_per_level:3 },
+};
+
+// ── engine state ────────────────────────────────────────────────────────────
+const cv = document.getElementById('c'), ctx = cv.getContext('2d'), ov = document.getElementById('overlay');
+let W=0,H=0,DPR=Math.min(2,window.devicePixelRatio||1);
+function resize(){ W=cv.width=innerWidth*DPR; H=cv.height=innerHeight*DPR; cv.style.width=innerWidth+'px'; cv.style.height=innerHeight+'px'; }
+addEventListener('resize',resize); resize();
+
+const keys={}; addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=1; if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(e.key.toLowerCase()))e.preventDefault();});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
+
+const rnd=(a,b)=>a+Math.random()*(b-a), pick=a=>a[Math.floor(Math.random()*a.length)];
+function weightedEnemy(t){
+  const avail=SPEC.enemies.filter(e=>!e.min_ms||t>=e.min_ms);
+  let tot=avail.reduce((s,e)=>s+e.weight,0), r=Math.random()*tot;
+  for(const e of avail){ if((r-=e.weight)<=0) return e; } return avail[0];
+}
+
+let G; // game object
+function newGame(){
+  G={ t:0, running:false, over:false, won:false, shake:0,
+      cam:{x:0,y:0},
+      player:{x:0,y:0,hp:SPEC.player.max_hp,maxhp:SPEC.player.max_hp,
+              speed:SPEC.player.move_speed_px,pickup:SPEC.player.pickup_radius_px,
+              iframe:0,flash:0,regen:0,r:14,facing:{x:1,y:0}},
+      weapons:[ mkWeapon("pistol") ], passives:{},
+      enemies:[], bullets:[], eproj:[], gems:[], parts:[], dmgs:[], turrets:[], fires:[],
+      level:1, xp:0, xpNext:5, spawnAcc:0, nextBoss:0, lvlpending:false };
+  G.player.x=0; G.player.y=0;
+}
+function mkWeapon(id){ const b=SPEC.weapons.find(w=>w.id===id); return {...b, lvl:1, cd:0}; }
+function rage(){ return SPEC.day_cycle.night_rage_windows_ms.some(([a,b])=>G.t>=a&&G.t<b); }
+
+// ── level up draft ──────────────────────────────────────────────────────────
+function offerDraft(){
+  G.lvlpending=true; G.running=false;
+  const opts=[];
+  // weapon level-ups
+  for(const w of G.weapons) if(w.lvl<6 && w.shape) opts.push({k:'wlvl',w, ic:w.icon, nm:w.id, ds:'Lv'+w.lvl+' → '+(w.lvl+1)+'  威力↑ / 間隔↓', lv:'WEAPON'});
+  // new weapons (base, not evolved)
+  const owned=new Set(G.weapons.map(w=>w.id));
+  for(const b of SPEC.weapons) if(!owned.has(b.id) && !isEvo(b.id) && G.weapons.length<6) opts.push({k:'wnew',id:b.id, ic:b.icon, nm:b.id, ds:'新武器', lv:'NEW WEAPON'});
+  // passives
+  for(const p of SPEC.passives) if(!G.passives[p.id]) opts.push({k:'pass',id:p.id, ic:p.icon, nm:p.id, ds:p.effect, lv:'PASSIVE'});
+  // shuffle + take 3
+  for(let i=opts.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[opts[i],opts[j]]=[opts[j],opts[i]];}
+  const three=opts.slice(0,SPEC.xp.choices_per_level);
+  showDraft(three);
+}
+function isEvo(id){ return SPEC.weapons.some(w=>w.evolves_to===id); }
+function applyDraft(o){
+  if(o.k==='wlvl'){ o.w.lvl++; tryEvolve(o.w); }
+  else if(o.k==='wnew'){ G.weapons.push(mkWeapon(o.id)); }
+  else if(o.k==='pass'){ G.passives[o.id]=1; applyPassive(o.id); }
+  ov.innerHTML=''; G.lvlpending=false; G.running=true; startLoop();
+}
+function applyPassive(id){
+  const p=G.player;
+  if(id==='kevlar'){ p.maxhp+=40; p.hp+=40; }
+  if(id==='adrenaline'){ p.speed=Math.round(p.speed*1.12); }
+}
+function tryEvolve(w){
+  if(w.evolves_to && w.lvl>=5 && w.merge_passive && G.passives[w.merge_passive]){
+    const e=SPEC.weapons.find(x=>x.id===w.evolves_to); Object.assign(w,{...e,lvl:w.lvl,cd:0});
+    toast('⚡ '+w.id+' に進化！');
+  }
+}
+function wstat(w){
+  let dmg=w.base_dmg*(1+(w.lvl-1)*0.25), cd=w.cooldown_ms*(1-(w.lvl-1)*0.06);
+  if(G.passives['extended-mag']) cd*=0.85;
+  if(G.passives['oil-can'] && w.shape==='aoe_fire') dmg*=1.5;
+  let range=(w.range_px||0); if(G.passives['grip-tape']&&(w.shape==='arc'||w.shape==='sustained_arc')) range*=1.2;
+  return {dmg, cd:Math.max(40,cd), range};
+}
+
+// ── spawning ────────────────────────────────────────────────────────────────
+function spawnEnemy(type,bossDef){
+  if(!bossDef && G.enemies.length>=SPEC.waves.max_alive) return;
+  const a=Math.random()*Math.PI*2, dist=Math.max(W,H)/DPR*0.62+rnd(20,120);
+  const e={ ...(bossDef||type), x:G.player.x+Math.cos(a)*dist, y:G.player.y+Math.sin(a)*dist,
+            hp:(bossDef||type).hp, maxhp:(bossDef||type).hp, dmg:(bossDef?bossDef.contact_dmg:type.dmg),
+            r:(bossDef||type).r, boss:!!bossDef, hit:0, atkcd:0, telegraph:0, enrage:false, sumcd:0 };
+  G.enemies.push(e);
+}
+function spawnTick(dt){
+  let iv=SPEC.waves.base_spawn_interval_ms;
+  const prog=Math.min(1,G.t/SPEC.win.survive_ms);
+  iv=iv-(iv-SPEC.waves.min_spawn_interval_ms)*prog;             // ramp down with time
+  if(rage()) iv*=1000/SPEC.day_cycle.night_rage_spawn_permille; // night rage = more
+  const finale=SPEC.bosses.find(b=>b.finale&&G.t>=b.at_ms);
+  if(finale) iv=Math.min(iv,finale.force_spawn_ms);
+  G.spawnAcc+=dt;
+  let burst = rage()?2:1;
+  while(G.spawnAcc>=iv){ G.spawnAcc-=iv; for(let i=0;i<burst;i++) spawnEnemy(weightedEnemy(G.t)); }
+  // bosses
+  while(G.nextBoss<SPEC.bosses.length){
+    const b=SPEC.bosses[G.nextBoss]; if(b.finale){G.nextBoss++;continue;}
+    if(G.t>=b.at_ms){ spawnEnemy(null,b); toast('⚠ BOSS: '+b.id); G.shake=14; G.nextBoss++; } else break;
+  }
+}
+
+// ── combat ──────────────────────────────────────────────────────────────────
+function nearest(x,y,maxd){ let best=null,bd=maxd*maxd; for(const e of G.enemies){const dx=e.x-x,dy=e.y-y,d=dx*dx+dy*dy; if(d<bd){bd=d;best=e;}} return best; }
+function fireWeapons(dt){
+  const p=G.player;
+  for(const w of G.weapons){
+    w.cd-=dt; if(w.cd>0) continue; const s=wstat(w); w.cd=s.cd;
+    if(w.shape==='bullet'||w.shape==='bullet_spray'){
+      const tgt=nearest(p.x,p.y,900); if(!tgt){w.cd=120;continue;}
+      let ang=Math.atan2(tgt.y-p.y,tgt.x-p.x);
+      const n=w.shape==='bullet_spray'?1:1;
+      for(let i=0;i<n;i++){ const a=ang+rnd(-0.06,0.06);
+        G.bullets.push({x:p.x,y:p.y,vx:Math.cos(a)*620,vy:Math.sin(a)*620,dmg:s.dmg,pierce:w.pierce||1,life:1.1,r:5,kind:w.id}); }
+    } else if(w.shape==='arc'||w.shape==='sustained_arc'){
+      const rad=s.range||90; let hit=false;
+      for(const e of G.enemies){ const dx=e.x-p.x,dy=e.y-p.y; if(dx*dx+dy*dy<(rad+e.r)*(rad+e.r)){
+        const fdot=(dx*p.facing.x+dy*p.facing.y); if(fdot>-rad*0.3){ damage(e,s.dmg); hit=true; } } }
+      G.parts.push({x:p.x+p.facing.x*rad*0.5,y:p.y+p.facing.y*rad*0.5,a:0.5,arc:rad,ang:Math.atan2(p.facing.y,p.facing.x),kind:'slash',life:0.12,max:0.12});
+    } else if(w.shape==='aoe_fire'){
+      const tgt=nearest(p.x,p.y,500)||{x:p.x+p.facing.x*120,y:p.y+p.facing.y*120};
+      G.fires.push({x:tgt.x,y:tgt.y,r:w.radius_px,dot:s.dmg,dur:(w.dot_ms||3000)/1000,t:0,tick:0});
+      G.shake=Math.max(G.shake,4);
+    } else if(w.shape==='summon_turret'){
+      G.turrets.push({x:p.x,y:p.y,life:(w.duration_ms||12000)/1000,cd:0,dmg:s.dmg});
+    }
+  }
+}
+function damage(e,raw){
+  let dmg=raw, crit=Math.random()*1000<SPEC.player.crit_chance_permille;
+  if(crit) dmg=dmg*SPEC.player.crit_mult_permille/1000;
+  dmg=Math.round(dmg); e.hp-=dmg; e.hit=0.08;
+  G.dmgs.push({x:e.x+rnd(-6,6),y:e.y-e.r,v:-40,life:0.6,txt:dmg,crit});
+  if(e.hp<=0) killEnemy(e);
+}
+function killEnemy(e){
+  const i=G.enemies.indexOf(e); if(i<0)return; G.enemies.splice(i,1);
+  for(let k=0;k<(e.boss?40:7);k++) G.parts.push({x:e.x,y:e.y,vx:rnd(-180,180),vy:rnd(-180,180),life:rnd(0.3,0.7),max:0.7,r:rnd(2,5),kind:'blood',col:e.color});
+  // xp gems
+  const gx=e.boss?Math.min(20,Math.ceil(e.xp/12)):1;
+  for(let k=0;k<gx;k++) G.gems.push({x:e.x+rnd(-10,10),y:e.y+rnd(-10,10),v:e.xp/gx||1});
+  if(e.boss){ G.shake=18; toast('☠ '+e.id+' 撃破'); }
+}
+
+// ── update ──────────────────────────────────────────────────────────────────
+let last=0;
+function update(dt){
+  const ms=dt*1000; G.t+=ms; if(G.t>=SPEC.win.survive_ms){ endGame(true); return; }
+  const p=G.player;
+  // move
+  let mx=(keys['d']||keys['arrowright']?1:0)-(keys['a']||keys['arrowleft']?1:0);
+  let my=(keys['s']||keys['arrowdown']?1:0)-(keys['w']||keys['arrowup']?1:0);
+  const ml=Math.hypot(mx,my)||1; mx/=ml; my/=ml;
+  if(mx||my){ p.facing.x=mx; p.facing.y=my; }
+  p.x+=mx*p.speed*dt; p.y+=my*p.speed*dt;
+  // regen passive
+  if(G.passives['first-aid']){ p.regen+=ms; while(p.regen>=3000){p.regen-=3000; p.hp=Math.min(p.maxhp,p.hp+1);} }
+  // camera
+  G.cam.x+=(p.x-G.cam.x)*Math.min(1,dt*8); G.cam.y+=(p.y-G.cam.y)*Math.min(1,dt*8);
+  if(p.iframe>0)p.iframe-=ms; if(p.flash>0)p.flash-=dt;
+  if(G.shake>0)G.shake=Math.max(0,G.shake-dt*40);
+
+  spawnTick(ms); fireWeapons(ms);
+
+  // bullets
+  for(const b of G.bullets){ b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
+    for(const e of G.enemies){ const dx=e.x-b.x,dy=e.y-b.y; if(dx*dx+dy*dy<(e.r+b.r)*(e.r+b.r)){ damage(e,b.dmg); if(--b.pierce<=0){b.life=0;break;} } } }
+  G.bullets=G.bullets.filter(b=>b.life>0);
+
+  // fires (dot)
+  for(const f of G.fires){ f.t+=dt; f.tick+=dt; if(f.tick>=0.3){ f.tick-=0.3;
+    for(const e of G.enemies){ const dx=e.x-f.x,dy=e.y-f.y; if(dx*dx+dy*dy<(f.r+e.r)*(f.r+e.r)) damage(e,Math.round(f.dot*0.3)); } } }
+  G.fires=G.fires.filter(f=>f.t<f.dur);
+
+  // turrets
+  for(const tr of G.turrets){ tr.life-=dt; tr.cd-=dt; if(tr.cd<=0){ const tg=nearest(tr.x,tr.y,300); if(tg){tr.cd=0.5; const a=Math.atan2(tg.y-tr.y,tg.x-tr.x); G.bullets.push({x:tr.x,y:tr.y,vx:Math.cos(a)*560,vy:Math.sin(a)*560,dmg:tr.dmg,pierce:2,life:0.8,r:4,kind:'turret'});} } }
+  G.turrets=G.turrets.filter(t=>t.life>0);
+
+  // enemies
+  for(const e of G.enemies){
+    let sp=e.speed*(rage()?SPEC.day_cycle.night_rage_speed_permille/1000:1);
+    if(e.boss&&e.hp<e.maxhp*0.5){ e.enrage=true; sp*=1.25; }
+    const dx=p.x-e.x,dy=p.y-e.y,d=Math.hypot(dx,dy)||1;
+    e.x+=dx/d*sp*dt; e.y+=dy/d*sp*dt; if(e.hit>0)e.hit-=dt;
+    // ranged spitter
+    if(e.ranged){ e.atkcd-=ms; if(d<e.ranged.range&&e.atkcd<=0){ e.atkcd=2200; const a=Math.atan2(dy,dx); G.eproj.push({x:e.x,y:e.y,vx:Math.cos(a)*e.ranged.proj_speed,vy:Math.sin(a)*e.ranged.proj_speed,dmg:e.dmg,life:3,r:6}); } }
+    // screamer summon
+    if(e.summon){ e.sumcd-=ms; if(e.sumcd<=0){ e.sumcd=5000; for(let i=0;i<6;i++){ const a=Math.random()*Math.PI*2; const t=SPEC.enemies.find(x=>x.id===e.summon); G.enemies.push({...t,hp:t.hp,maxhp:t.hp,x:e.x+Math.cos(a)*40,y:e.y+Math.sin(a)*40,r:t.r,dmg:t.dmg,hit:0}); } } }
+    // boss horde-mother bile ring
+    if(e.boss&&e.bile){ e.atkcd-=ms; if(e.atkcd<=0){ e.atkcd=e.enrage?4500:6000; e.telegraph=0.5;
+      setTimeout(()=>{ if(G.enemies.includes(e)){ const n=e.enrage?20:12; for(let i=0;i<n;i++){const a=i/n*Math.PI*2; G.eproj.push({x:e.x,y:e.y,vx:Math.cos(a)*170,vy:Math.sin(a)*170,dmg:18,life:4,r:7});}} },480); } }
+    if(e.telegraph>0)e.telegraph-=dt;
+    // contact
+    if(d<e.r+p.r && p.iframe<=0){ hurt(e.dmg); }
+  }
+  // enemy projectiles
+  for(const q of G.eproj){ q.x+=q.vx*dt; q.y+=q.vy*dt; q.life-=dt;
+    const dx=p.x-q.x,dy=p.y-q.y; if(dx*dx+dy*dy<(p.r+q.r)*(p.r+q.r)&&p.iframe<=0){ hurt(q.dmg); q.life=0; } }
+  G.eproj=G.eproj.filter(q=>q.life>0);
+
+  // gems
+  for(const g of G.gems){ const dx=p.x-g.x,dy=p.y-g.y,d=Math.hypot(dx,dy)||1;
+    if(d<p.pickup){ g.x+=dx/d*Math.min(d,420)*dt*2.2; g.y+=dy/d*Math.min(d,420)*dt*2.2; }
+    if(d<14){ let v=g.v; if(G.passives['scavenger'])v*=1.25; G.xp+=v; g.dead=1; } }
+  G.gems=G.gems.filter(g=>!g.dead);
+  while(G.xp>=G.xpNext){ G.xp-=G.xpNext; G.level++; G.xpNext=Math.round(5+G.level*G.level*1.6); offerDraft(); return; }
+
+  // particles / dmg numbers
+  for(const pa of G.parts){ if(pa.vx!==undefined){pa.x+=pa.vx*dt;pa.y+=pa.vy*dt;pa.vx*=0.92;pa.vy*=0.92;} pa.life-=dt; }
+  G.parts=G.parts.filter(p=>p.life>0);
+  for(const d of G.dmgs){ d.y+=d.v*dt; d.life-=dt; }
+  G.dmgs=G.dmgs.filter(d=>d.life>0);
+}
+function hurt(dmg){ const p=G.player; p.hp-=dmg; p.iframe=SPEC.player.contact_iframe_ms; p.flash=0.18; G.shake=Math.max(G.shake,7);
+  if(p.hp<=0) endGame(false); }
+
+// ── render ──────────────────────────────────────────────────────────────────
+function draw(){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  const w=W/DPR,h=H/DPR;
+  // bg with night tint
+  const night=rage(); ctx.fillStyle=night?'#1a0a0c':'#0a0d13'; ctx.fillRect(0,0,w,h);
+  let sx=0,sy=0; if(G.shake>0){sx=rnd(-G.shake,G.shake);sy=rnd(-G.shake,G.shake);}
+  const ox=w/2-G.cam.x+sx, oy=h/2-G.cam.y+sy;
+  ctx.save(); ctx.translate(ox,oy);
+  // grid
+  ctx.strokeStyle=night?'#2a1418':'#141b26'; ctx.lineWidth=1; const gs=64;
+  const x0=Math.floor((G.cam.x-w/2)/gs)*gs, y0=Math.floor((G.cam.y-h/2)/gs)*gs;
+  ctx.beginPath(); for(let x=x0;x<G.cam.x+w/2;x+=gs){ctx.moveTo(x,G.cam.y-h/2);ctx.lineTo(x,G.cam.y+h/2);} for(let y=y0;y<G.cam.y+h/2;y+=gs){ctx.moveTo(G.cam.x-w/2,y);ctx.lineTo(G.cam.x+w/2,y);} ctx.stroke();
+  // fires
+  for(const f of G.fires){ const a=0.25*(1-f.t/f.dur)+0.1; ctx.fillStyle='rgba(255,120,30,'+a+')'; ctx.beginPath(); ctx.arc(f.x,f.y,f.r,0,7); ctx.fill(); ctx.fillStyle='rgba(255,200,60,'+(a*0.6)+')'; ctx.beginPath(); ctx.arc(f.x,f.y,f.r*0.6,0,7); ctx.fill(); }
+  // gems
+  for(const g of G.gems){ ctx.fillStyle='#39d6ff'; ctx.fillRect(g.x-3,g.y-3,6,6); }
+  // turrets
+  for(const tr of G.turrets){ ctx.fillStyle='#9fd0ff'; ctx.fillRect(tr.x-7,tr.y-7,14,14); ctx.strokeStyle='#3a6a9a'; ctx.strokeRect(tr.x-7,tr.y-7,14,14); }
+  // enemies
+  for(const e of G.enemies){
+    if(e.telegraph>0){ ctx.strokeStyle='rgba(255,60,60,'+(0.4+0.4*Math.sin(G.t/50))+')'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(e.x,e.y,170,0,7); ctx.stroke(); ctx.lineWidth=1; }
+    ctx.fillStyle=e.hit>0?'#fff':e.color; ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,7); ctx.fill();
+    if(e.boss||e.enrage){ ctx.strokeStyle=e.enrage?'#ff4040':'#000'; ctx.lineWidth=e.boss?3:1; ctx.stroke(); }
+    if(e.boss){ ctx.fillStyle='#000a'; ctx.fillRect(e.x-e.r,e.y-e.r-9,e.r*2,5); ctx.fillStyle='#ff5a5a'; ctx.fillRect(e.x-e.r,e.y-e.r-9,e.r*2*(e.hp/e.maxhp),5);
+      ctx.font='18px monospace'; ctx.textAlign='center'; ctx.fillText(e.icon,e.x,e.y+6); }
+    else { ctx.font=(e.r)+'px serif'; ctx.textAlign='center'; ctx.fillText(e.icon,e.x,e.y+e.r*0.4); }
+  }
+  // enemy projectiles
+  ctx.fillStyle='#b6ff7a'; for(const q of G.eproj){ ctx.beginPath(); ctx.arc(q.x,q.y,q.r,0,7); ctx.fill(); }
+  // bullets
+  for(const b of G.bullets){ ctx.fillStyle=b.kind==='molotov'?'#ff8c1e':b.kind==='turret'?'#9fd0ff':'#ffe26b'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); }
+  // slash arcs
+  for(const pa of G.parts){ if(pa.kind==='slash'){ ctx.strokeStyle='rgba(255,255,255,'+(pa.life/pa.max)+')'; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(G.player.x,G.player.y,pa.arc,pa.ang-0.9,pa.ang+0.9); ctx.stroke(); ctx.lineWidth=1; } }
+  // blood parts
+  for(const pa of G.parts){ if(pa.kind==='blood'){ ctx.globalAlpha=pa.life/pa.max; ctx.fillStyle=pa.col||'#b33'; ctx.fillRect(pa.x-pa.r/2,pa.y-pa.r/2,pa.r,pa.r); ctx.globalAlpha=1; } }
+  // player
+  const p=G.player; ctx.fillStyle=p.flash>0?'#ff5a5a':'#36e0e0'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill();
+  ctx.strokeStyle='#0b3a3a'; ctx.lineWidth=2; ctx.stroke();
+  ctx.strokeStyle='#36e0e0'; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+p.facing.x*20,p.y+p.facing.y*20); ctx.stroke();
+  // pickup radius (subtle)
+  ctx.strokeStyle='rgba(54,224,224,.10)'; ctx.beginPath(); ctx.arc(p.x,p.y,p.pickup,0,7); ctx.stroke();
+  // dmg numbers
+  ctx.textAlign='center';
+  for(const d of G.dmgs){ ctx.globalAlpha=Math.min(1,d.life*2); ctx.fillStyle=d.crit?'#ffd23b':'#fff'; ctx.font=(d.crit?'bold 17px':'13px')+' monospace'; ctx.fillText(d.txt,d.x,d.y); ctx.globalAlpha=1; }
+  ctx.restore();
+  drawHUD(w,h,night);
+}
+function fmt(ms){ const s=Math.max(0,Math.ceil((SPEC.win.survive_ms-ms)/1000)); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
+function drawHUD(w,h,night){
+  const p=G.player;
+  // hp bar
+  ctx.fillStyle='#0008'; ctx.fillRect(16,16,240,22); ctx.fillStyle='#ff3b3b'; ctx.fillRect(16,16,240*Math.max(0,p.hp/p.maxhp),22);
+  ctx.strokeStyle='#3a1518'; ctx.strokeRect(16,16,240,22);
+  ctx.fillStyle='#fff'; ctx.font='12px monospace'; ctx.textAlign='left'; ctx.fillText('HP '+Math.max(0,Math.ceil(p.hp))+'/'+p.maxhp,22,32);
+  // xp bar
+  ctx.fillStyle='#0008'; ctx.fillRect(16,44,240,10); ctx.fillStyle='#39d6ff'; ctx.fillRect(16,44,240*(G.xp/G.xpNext),10);
+  ctx.fillStyle='#9fb0c6'; ctx.fillText('Lv '+G.level,22,72);
+  // timer
+  ctx.textAlign='center'; ctx.font='bold 30px monospace'; ctx.fillStyle=night?'#ff8c8c':'#e8eef7'; ctx.fillText(fmt(G.t),w/2,42);
+  if(night){ ctx.font='11px monospace'; ctx.fillStyle='#ff6b6b'; ctx.fillText('🌙 NIGHT RAGE',w/2,58); }
+  // weapons
+  ctx.textAlign='right'; ctx.font='20px serif';
+  let wx=w-20; for(const wp of G.weapons.slice().reverse()){ ctx.fillText(wp.icon+(wp.lvl>1?'·'+wp.lvl:''),wx,34); wx-=46; }
+  // enemy count
+  ctx.fillStyle='#56627a'; ctx.font='11px monospace'; ctx.fillText('敵 '+G.enemies.length,w-20,54);
+}
+
+// ── overlays ──────────────────────────────────────────────────────────────────
+function showDraft(opts){
+  ov.innerHTML=`<div class="panel"><h1>LEVEL UP &nbsp;<span style="color:#39d6ff">Lv ${G.level}</span><span class="sub">武器 or パッシブを 1 つ選択</span></h1>
+    <div class="draft">${opts.map((o,i)=>`<div class="card" data-i="${i}"><div class="ic">${o.ic}</div><div class="nm">${o.nm}</div><div class="ds">${o.ds}</div><div class="lv">${o.lv}</div></div>`).join('')}</div></div>`;
+  ov.querySelectorAll('.card').forEach(c=>c.onclick=()=>applyDraft(opts[+c.dataset.i]));
+}
+let toastT=0,toastMsg='';
+function toast(m){ toastMsg=m; toastT=2; }
+function drawToast(){ if(toastT>0){ toastT-=1/60; const w=W/DPR; ctx.textAlign='center'; ctx.font='bold 18px monospace'; ctx.fillStyle='rgba(255,90,90,'+Math.min(1,toastT)+')'; ctx.fillText(toastMsg,w/2,110); } }
+function startScreen(){
+  ov.innerHTML=`<div class="panel" style="text-align:center">
+    <div class="big">🧟 ${SPEC.title}</div>
+    <div class="tag">gameka · survivors-runtime P0 · zombie gameSpec</div>
+    <div class="hint" style="margin-top:16px;text-align:left">
+      <b>WASD / 矢印</b> で移動。武器は<b>自動発射</b>。<br>
+      💎 を拾って Lv↑ → 武器/パッシブを 3択ドラフト。<br>
+      🌙 夜は湧きが激化。BOSS は 5:00 / 10:00、ラスト 30秒は全方位殺到。<br>
+      <b>15:00 生存で勝利。</b>
+    </div>
+    <button class="go" id="start">▶ 夜明けまで生き残る</button>
+    <div class="hint" style="margin-top:10px">※ これは spec を解釈する P0 プロトタイプ。本番は同データを kami WASM が描画。</div>
+  </div>`;
+  ov.querySelector('#start').onclick=()=>{ newGame(); G.running=true; ov.innerHTML=''; startLoop(); };
+}
+function endGame(won){
+  G.running=false; G.over=true; G.won=won;
+  const min=Math.floor(G.t/60000), sec=Math.floor(G.t%60000/1000);
+  ov.innerHTML=`<div class="panel" style="text-align:center">
+    <div class="big">${won?'☀️ 生還！夜明けだ':'💀 GAME OVER'}</div>
+    <div class="hint">生存 ${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')} · Lv ${G.level} · 武器 ${G.weapons.length}</div>
+    <div class="tag">${won?'survive 15:00 達成':'all-players-down'} · このリザルトが L-META の submitRun になる</div><br>
+    <button class="go" id="retry">↻ もう一度</button>
+  </div>`;
+  ov.querySelector('#retry').onclick=()=>{ newGame(); G.running=true; ov.innerHTML=''; startLoop(); };
+}
+
+// ── main loop ─────────────────────────────────────────────────────────────────
+// setInterval + wall-clock sub-stepping (not rAF): a focused tab ticks every
+// 16ms → smooth 60fps; a backgrounded/occluded tab clamps to ~1s but each tick
+// then sub-steps the full elapsed second, so the sim advances in REAL time
+// regardless of throttling (rAF would pause entirely when hidden).
+let timer=null;
+function startLoop(){ last=performance.now(); if(!timer) timer=setInterval(tick,16); }
+function stopLoop(){ if(timer){ clearInterval(timer); timer=null; } }
+function tick(){
+  if(!G||!G.running){ stopLoop(); if(G&&G.lvlpending){ draw(); drawToast(); } return; }
+  let now=performance.now(); let dt=(now-last)/1000; last=now; if(dt>1)dt=1;
+  const step=0.02;
+  while(dt>0 && G.running){ update(Math.min(step,dt)); dt-=step; }
+  if(G.running||G.lvlpending){ draw(); drawToast(); }
+}
+startScreen();
+</script>
+</body>
+</html>
