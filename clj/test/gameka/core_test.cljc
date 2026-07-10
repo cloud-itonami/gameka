@@ -4,6 +4,20 @@
             [gameka.cid :as cid]
             [gameka.graphs.registry :as reg]))
 
+;; clj/langgraph.edn was datomized (Phase 3 EDN datomize fanout): its top-level
+;; map is now wrapped as Datomic/Datascript tx-data ([{:db/id -1 :langgraph/... }]),
+;; with non-scalar values (like :graphs) pr-str'd into a blob string. Reconstitute
+;; the original un-namespaced map here so the assertion below is unchanged.
+(defn- unblob [v]
+  (if (string? v)
+    (try (let [parsed (edn/read-string v)] (if (coll? parsed) parsed v))
+         (catch #?(:clj Exception :cljs :default) _ v))
+    v))
+
+(defn- reconstitute-entity [tx-data]
+  (into {} (map (fn [[k v]] [(keyword (name k)) (unblob v)]))
+        (dissoc (first tx-data) :db/id)))
+
 (deftest registry-surface
   (let [r (reg/build)]
     (is (= #{"ai.gftd.apps.gameka.health"
@@ -18,7 +32,8 @@
       (is (reg/resolve-entry r id)))))
 
 (deftest manifest-matches-registry
-  (let [manifest (edn/read-string (slurp "langgraph.edn"))]
+  (let [tx-data (edn/read-string (slurp "langgraph.edn"))
+        manifest (reconstitute-entity tx-data)]
     (is (= (set (keys (reg/build))) (set (keys (:graphs manifest)))))))
 
 (deftest cid-is-deterministic
