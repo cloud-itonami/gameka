@@ -1,8 +1,7 @@
 {
   "@context": "https://gftd.ai/ns/magatama/v1",
   "@id": "did:web:gameka.gftd.ai",
-  "component": { "env": {}, "path": "src/app.cljc" },
-  "deploy": {},
+  "deploy": { "owner": "ai-gftd-gameka-playtest-shell", "status": "external" },
   "name": "ai-gftd-wasm-gameka",
   "nanoid": "gmk00001",
   "performerType": "service",
@@ -15,7 +14,7 @@
   },
   "project": "gameka",
   "routes": [{ "host": "gameka.gftd.ai", "paths": ["/"], "tls": true }],
-  "runtimeType": "worker",
-  "build": { "guestLanguage": "ts", "role": "thin-edge" },
+  "runtimeType": "external-worker",
+  "build": { "role": "identity-metadata" },
   "uiType": "appview"
 }
