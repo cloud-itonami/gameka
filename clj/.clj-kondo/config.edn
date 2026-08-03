@@ -1,0 +1,5 @@
+;; These .cljc files are JVM-only in practice — the graph server uses http-kit
+;; and Java interop, and nothing loads them under ClojureScript. Linting them
+;; for both feature sets reports Java symbols as unresolved, which is noise
+;; rather than a finding.
+{:cljc {:features [:clj]}}

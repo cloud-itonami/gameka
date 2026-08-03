@@ -1,0 +1,129 @@
+(ns gameka.produce
+  "The producer the production loop calls: one gameSpec -> a build.
+
+  ```
+  clojure -M:produce --spec survivors-zombie-v1 [--out target/gameka] [--legs legs.edn]
+  ```
+
+  Five steps, each of which reports what it actually did rather than whether
+  it threw:
+
+  1. read the spec from `specs/`
+  2. check it (`game-production.spec/problems`) and cost it
+     (`game-production.balance`)
+  3. render runtime source from the spec's own template
+  4. render the audio the build needs on murakumo.cloud, one cue at a time
+  5. mirror every artifact to kotobase.net under its own CID
+
+  **Legs vocabulary.** The loop grades a run from the producer's `:legs` map
+  (ADR-2800002700), whose keys are video-shaped because the first four
+  channels were video. gameka reports, following the precedent
+  `:ghosthacker` set for manga in `loop-ka-production/resources/channels.edn`:
+
+  - `:video` — one entry per generated **audio cue**: `:murakumo` when the
+    fleet rendered it, `:placeholder` when it fell back. These are this
+    channel's generative legs, so this is the list that must be graded.
+  - `:voice []` — a game has no narration. An empty voice list is not graded
+    degraded.
+  - `:bed` — whether the music bed landed.
+  - `:sfx` — the cues that reached storage.
+
+  Never throws for a missing fleet or a missing token: it produces a silent
+  build and says so, leg by leg, so the loop holds it instead of publishing
+  a game with no sound."
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [game-production.audio :as audio]
+            [gameka.archive :as archive]
+            [gameka.build :as build]
+            [gameka.catalog :as catalog]
+            [gameka.murakumo :as murakumo])
+  (:gen-class))
+
+(defn- log [& xs] (binding [*out* *err*] (apply println "[gameka]" xs)))
+
+(defn- parse-args [args]
+  (into {} (for [[k v] (partition-all 2 args)
+                 :when (and k (str/starts-with? (str k) "--"))]
+             [(keyword (subs (str k) 2)) v])))
+
+(defn render-cue!
+  "One cue -> {:kind :file :cue-id}. `:kind` is `:murakumo` when the fleet
+  produced audio and `:placeholder` when it did not, which is the only thing
+  the loop needs to know and the one thing a silent build must not hide."
+  [cue dir]
+  (let [out (io/file dir (str (:cue/id cue) ".wav"))]
+    (io/make-parents out)
+    (if-let [r (try (murakumo/cue! cue out)
+                    (catch Exception e (log "cue failed:" (:cue/id cue) (.getMessage e)) nil))]
+      {:cue-id (:cue/id cue) :kind :murakumo :file (str out) :cid (:cid r)}
+      {:cue-id (:cue/id cue) :kind :placeholder :file nil :cid nil})))
+
+(defn produce!
+  "spec -> {:build ... :legs ... :artifacts ...}. Pure orchestration over the
+  three IO namespaces; every failure is a leg, not an exception."
+  [spec {:keys [out-dir render-audio?] :or {render-audio? true}}]
+  (let [id (or (catalog/spec-id spec) "unknown")
+        dir (io/file (or out-dir "target/gameka") (str id))
+        b (build/build-spec spec)
+        plan (audio/plan spec)
+        _ (when (seq (:unmapped-shapes plan))
+            (log "weapon shapes with no timbre:" (str/join ", " (:unmapped-shapes plan))))
+        token? (some? (murakumo/token))
+        _ (when-not token?
+            (log "MURAKUMO_GENERATION_TOKEN not set — audio will be a placeholder leg"))
+        rendered (if (and render-audio? token?)
+                   (mapv #(render-cue! % dir) (:cues plan))
+                   (mapv (fn [c] {:cue-id (:cue/id c) :kind :placeholder}) (:cues plan)))
+        beds (if (and render-audio? token?)
+               (mapv #(render-cue! % dir) (:beds plan))
+               (mapv (fn [c] {:cue-id (:cue/id c) :kind :placeholder}) (:beds plan)))
+        source-file (when (:script b)
+                      (let [f (io/file dir (str (:slug b) ".clj"))]
+                        (io/make-parents f)
+                        (spit f (:script b))
+                        f))
+        stored (archive/put-all!
+                (concat (when source-file [[source-file :clj]])
+                        (for [r (concat beds rendered) :when (:file r)] [(:file r) :wav])))]
+    {:build (dissoc b :script)
+     :artifacts (mapv :cid stored)
+     :legs {:video (mapv :kind rendered)
+            :voice []
+            :bed (boolean (some #(= :murakumo (:kind %)) beds))
+            :sfx (vec (keep :cid stored))
+            :spec-id id
+            ;; Not graded by the loop — carried so a hold can be explained
+            ;; without re-deriving the design.
+            :design (:design b)
+            :build-status (:status b)}
+     :source (when source-file (str source-file))
+     :dir (str dir)}))
+
+(defn -main [& args]
+  (let [{:keys [spec out legs no-audio]} (parse-args args)
+        s (when spec (catalog/find-spec spec))]
+    (cond
+      (nil? spec)
+      (do (log "usage: --spec <gamespec-id> [--out <dir>] [--legs <file.edn>] [--no-audio true]")
+          (System/exit 2))
+
+      (nil? s)
+      (do (log "no such spec in catalog:" spec
+               "— have:" (str/join ", " (keep catalog/spec-id (:specs (catalog/specs)))))
+          (System/exit 2))
+
+      :else
+      (let [r (produce! s {:out-dir out :render-audio? (not no-audio)})
+            d (get-in r [:legs :design])]
+        (log "build:" (get-in r [:legs :build-status])
+             "| design problems:" (:problem-count d)
+             "| endgame holdable:" (:holdable? (:endgame d))
+             "| cues:" (frequencies (get-in r [:legs :video]))
+             "| bed:" (get-in r [:legs :bed])
+             "| archived:" (count (:artifacts r)))
+        (when legs
+          (spit legs (pr-str (:legs r)))
+          (log "legs ->" legs))
+        (println (pr-str (dissoc r :legs)))
+        (System/exit 0)))))

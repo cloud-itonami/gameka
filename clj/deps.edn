@@ -1,12 +1,34 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        ;; game-production craft lib (ADR-2607023000) — the gameSpec vocabulary,
+        ;; consistency checks, balance arithmetic, runtime knobs and audio cue
+        ;; plan that used to be absent here. This repo keeps the business:
+        ;; catalog, prompts, serving, keys.
+        io.github.kotoba-lang/game-production
+        {:git/url "https://github.com/kotoba-lang/game-production"
+         :git/sha "ae08263df1c044ce030af72ec62544ea2476f4e2"}
+        ;; shared murakumo generation client (ADR-2607299960) — the API's real
+        ;; host, accepted ranges, artifact-URL rebasing, digest verification and
+        ;; cold-start retry live there so every -ka repo gets them instead of
+        ;; relearning each one from a 400.
+        io.github.kotoba-lang/murakumo-generation
+        {:git/url "https://github.com/kotoba-lang/murakumo-generation"
+         :git/sha "ce6e673ac7317befdcef767d1e9da3754bc28ba4"}
         http-kit/http-kit   {:mvn/version "2.8.0"}
         metosin/reitit-ring {:mvn/version "0.7.2"}
         ring/ring-core      {:mvn/version "1.12.2"}
         metosin/jsonista    {:mvn/version "0.3.11"}}
  :aliases
- {:run {:main-opts ["-m" "gameka.server"]}
+ {;; Workspace development — use the local craft-lib checkout (no git fetch).
+  :dev {:override-deps
+        {io.github.kotoba-lang/game-production
+         {:local/root "../../../kotoba-lang/game-production"}}}
+  :run {:main-opts ["-m" "gameka.server"]}
+  :produce {:main-opts ["-m" "gameka.produce"]}
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts ["-m" "cognitect.test-runner"]}}}
+         :main-opts ["-m" "cognitect.test-runner"]}
+  :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.11.14"}}
+         :main-opts ["-m" "clj-kondo.main" "--lint" "src" "test"
+                     "--fail-level" "error"]}}}

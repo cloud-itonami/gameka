@@ -24,11 +24,13 @@
              "ai.gftd.apps.gameka.generate"
              "ai.gftd.apps.gameka.proposeSpec"
              "ai.gftd.gameka.proposeGame"
+             "ai.gftd.gameka.reviewSpec"
              "ai.gftd.gameka.generateGame"
              "ai.gftd.gameka.playtestGame"
              "ai.gftd.gameka.publishGame"}
            (set (keys r))))
-    (doseq [id ["health" "generate" "propose_spec" "generate_game" "playtest_game" "publish_game"]]
+    (doseq [id ["health" "generate" "propose_spec" "review_spec" "generate_game"
+                "playtest_game" "publish_game"]]
       (is (reg/resolve-entry r id)))))
 
 (deftest manifest-matches-registry
@@ -54,16 +56,21 @@
 (deftest studio-loop-graphs
   (let [r (reg/build)
         prop ((:handler (reg/resolve-entry r "ai.gftd.gameka.proposeGame")) {:brief "zombie mall survivors"} nil)
-        gen ((:handler (reg/resolve-entry r "generate_game")) {:specId (:specId prop)} nil)
         qa ((:handler (reg/resolve-entry r "playtest_game")) {:specId (:specId prop)} nil)
         pub-missing ((:handler (reg/resolve-entry r "publish_game")) {:specId (:specId prop)} nil)
-        pub ((:handler (reg/resolve-entry r "publish_game")) {:specId (:specId prop) :artifactId (:artifactId gen)} nil)]
+        pub ((:handler (reg/resolve-entry r "publish_game")) {:specId (:specId prop) :artifactId "art-x"} nil)]
     (is (= "rejected" (:status prop)))
-    (is (= "done" (:status gen)))
-    (is (= "sources_ready" (:buildStatus gen)))
-    (is (.contains (:script gen) "max-alive"))
     (is (= "done" (:status qa)))
     (is (= false (:publish qa)))
     (is (= "error" (:status pub-missing)))
     (is (= "done" (:status pub)))
     (is (= "https://gamers.gftd.ai/play/zombie-mall-survivors" (:playUrl pub)))))
+
+(deftest generate-game-needs-a-real-spec
+  ;; This assertion is the point of the change. `generate_game` used to accept
+  ;; any string and return "done" with `:buildStatus "sources_ready"`, because
+  ;; it never read a spec at all — it emitted four hardcoded constants. A
+  ;; proposal id that is not in the catalog is now an error, not a build.
+  (let [h (:handler (reg/resolve-entry (reg/build) "generate_game"))]
+    (is (= "error" (:status (h {:specId "no-such-game-v1"} nil))))
+    (is (= "error" (:status (h {} nil))))))

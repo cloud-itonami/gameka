@@ -37,3 +37,6 @@ venv/
 *.log
 coverage/
 test-results/
+.cpcache/
+.clj-kondo/.cache/
+target/
