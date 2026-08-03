@@ -1,5 +1,27 @@
 (ns gameka.graphs.registry
+  "NSID -> handler for the gameka graph server.
+
+  Two handlers here used to be fiction and are not any more:
+
+  - `generate-game` emitted the same four hardcoded constants for every
+    spec (`max-alive 200`, `enemy-speed 120`, `spawn-period 20`,
+    `fire-period 30`) and a CID over that constant string, so two entirely
+    different designs produced byte-identical artifacts with the same
+    content address — while reporting `\"sources_ready\"`. It now renders
+    the spec's own template with the spec's own constants, via
+    `gameka.build`.
+
+  - `propose-spec` always returned `:status \"rejected\"` with `:score 0`
+    and the rationale *\"no LLM critic score fabricated\"*. That honesty was
+    right and is kept — nothing here invents a taste score — but a proposal
+    now carries the design facts that *can* be computed without a critic:
+    consistency findings and whether the design has an endgame.
+
+  `playtest-game` is still a scaffold and still says so. There is no headless
+  runner, and a fabricated visual score would be worse than a zero."
   (:require [clojure.string :as str]
+            [gameka.build :as build]
+            [gameka.catalog :as catalog]
             [gameka.cid :as cid]))
 
 (defn- input-value [m & ks] (some #(get m %) ks))
@@ -46,26 +68,57 @@
          :rationale "deterministic CLJ fallback; no LLM critic score fabricated"
          :cid (cid/spec-cid mechanic scene)}))))
 
+(defn- review-spec
+  "The design facts that need no critic: consistency findings and whether the
+  design has an endgame. Answers about a spec already in the catalog, so a
+  reviewer can ask before a build exists."
+  [input _]
+  (let [spec-id (str/trim (str (or (input-value input :specId :spec-id "specId" "spec_id") "")))]
+    (if-not (seq spec-id)
+      {:status "error" :error "specId is required"}
+      (if-let [spec (catalog/find-spec spec-id)]
+        (let [d (build/design-report spec)]
+          {:status "done"
+           :specId (:spec-id d)
+           :problemCount (:problem-count d)
+           :problems (pr-str (:problems d))
+           :pressure (pr-str (:pressure d))
+           :endgame (pr-str (:endgame d))
+           ;; No taste score. Consistency and sustainable dps are decidable
+           ;; without a player; "is it fun" is not, and a number here would be
+           ;; the fabrication propose-spec has always refused to make.
+           :verdict (cond
+                      (pos? (:problem-count d)) "inconsistent"
+                      (false? (:holdable? (:endgame d))) "no-endgame"
+                      :else "consistent")})
+        {:status "error" :error (str "no such spec in catalog: " spec-id)}))))
+
 (defn- generate-game [input _]
   (let [spec-id (str/trim (str (or (input-value input :specId :spec-id "specId" "spec_id") "")))]
     (if-not (seq spec-id)
       {:status "error" :error "specId is required"}
-      (let [slug (str/replace spec-id #"-v\d+$" "")
-            script (str "(ns gameka.generated." (str/replace slug #"-" "_") ")\n"
-                        "(def max-alive 200)\n(def enemy-speed (f32 120))\n"
-                        "(def spawn-period 20)\n(def fire-period 30)\n"
-                        "(defn tick [] :sources-ready)\n")]
-        {:status "done"
-         :artifactId (str "art-" spec-id)
-         :slug slug
-         :uri (str "at://did:web:gameka.gftd.ai/ai.gftd.gameka.buildArtifact/art-" spec-id)
-         :wasmCid (cid/cidv1-b32-sha256 script)
-         :wasmSize 0
-         :wasmUrl ""
-         :jsUrl ""
-         :buildStatus "sources_ready"
-         :scriptCid (cid/cidv1-b32-sha256 script)
-         :script script}))))
+      (if-let [spec (catalog/find-spec spec-id)]
+        (let [b (build/build-spec spec)
+              d (:design b)]
+          (cond-> {:status (if (= "sources_ready" (:status b)) "done" "incomplete")
+                   :artifactId (:artifactId b)
+                   :slug (:slug b)
+                   :uri (:uri b)
+                   ;; No wasm yet: this emits runtime sources, and a kami-clj
+                   ;; runner compiles them. Reporting a wasmCid over sources
+                   ;; would name a build that does not exist.
+                   :wasmCid ""
+                   :wasmSize 0
+                   :wasmUrl ""
+                   :jsUrl ""
+                   :buildStatus (:status b)
+                   :scriptCid (:scriptCid b)
+                   :script (:script b)
+                   :knobs (pr-str (:knobs b))
+                   :problemCount (:problem-count d)
+                   :endgame (pr-str (:endgame d))}
+            (seq (:unfilled b)) (assoc :unfilled (str/join "," (:unfilled b)))))
+        {:status "error" :error (str "no such spec in catalog: " spec-id)}))))
 
 (defn- playtest-game [input _]
   (let [spec-id (str/trim (str (or (input-value input :specId :spec-id "specId" "spec_id") "")))
@@ -107,6 +160,7 @@
    "ai.gftd.apps.gameka.generate" {:assistant :generate :handler generate}
    "ai.gftd.apps.gameka.proposeSpec" {:assistant :propose_spec :handler propose-spec}
    "ai.gftd.gameka.proposeGame" {:assistant :propose_game :handler propose-spec}
+   "ai.gftd.gameka.reviewSpec" {:assistant :review_spec :handler review-spec}
    "ai.gftd.gameka.generateGame" {:assistant :generate_game :handler generate-game}
    "ai.gftd.gameka.playtestGame" {:assistant :playtest_game :handler playtest-game}
    "ai.gftd.gameka.publishGame" {:assistant :publish_game :handler publish-game}})

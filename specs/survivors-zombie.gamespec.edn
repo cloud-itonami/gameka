@@ -112,7 +112,11 @@
        {:move/id "bile-spiral" :move/telegraph-ms 600 :move/shape "spiral-bullets" :move/bullet-count 24 :move/proj-speed-px 150 :move/rotate-deg 15 :move/dmg 18 :move/cooldown-ms 4500}]}]}
 
    ;; scripted finale, not a boss: force max spawn pressure, survive = win.
-   {:boss/id "dawn-swarm" :boss/at-ms 870000 :boss/finale true
+   ;; The presence of :boss/finale IS the marker — this entry carried both
+   ;; `:boss/finale true` and the map below, which is a duplicate key, so the
+   ;; whole file failed `clojure.edn/read-string` and no reader had ever
+   ;; loaded this spec.
+   {:boss/id "dawn-swarm" :boss/at-ms 870000
     :boss/finale {:finale/force-spawn-interval-ms 250 :finale/spawn-from "all-edges" :finale/duration-ms 30000}}]
 
   :waves
