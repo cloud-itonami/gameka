@@ -16,7 +16,7 @@
   Auth: env `KOTOBASE_ARCHIVE_TOKEN` (bearer). Absent -> every put returns nil
   with a warning and the build continues; storage is a mirror, never a gate."
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [gameka.cid :as cid])
   (:import [java.net URI]
            [java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers

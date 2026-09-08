@@ -32,7 +32,7 @@
   build and says so, leg by leg, so the loop holds it instead of publishing
   a game with no sound."
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [game-production.audio :as audio]
             [gameka.archive :as archive]
             [gameka.build :as build]

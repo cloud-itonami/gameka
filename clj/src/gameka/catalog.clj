@@ -9,7 +9,7 @@
   directory is used, so neither caller has to know about the other."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [kotoba.lang.text :as str]))
 
 (defn- has-specs? [^java.io.File d]
   (and d (.isDirectory (io/file d "specs"))))

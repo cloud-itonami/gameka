@@ -12,7 +12,7 @@
   implementation the generation client verifies downloads against and the
   same one kotobase names objects by. One name across compute and storage;
   no second base32 to drift."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [murakumo.generation.digest :as digest]))
 
 (def raw-cid

@@ -2,7 +2,7 @@
   "Against this studio's own catalog — not a fixture. The bug these tests
   exist to prevent was invisible precisely because nothing ever read a real
   spec."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [gameka.build :as build]
             [gameka.catalog :as catalog]
