@@ -19,7 +19,7 @@
   normal state, not an error: production degrades to a silent build and says
   so per leg."
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [jsonista.core :as j]
             [murakumo.generation :as gen]
             [murakumo.generation.client :as client])

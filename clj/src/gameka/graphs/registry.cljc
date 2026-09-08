@@ -19,7 +19,7 @@
 
   `playtest-game` is still a scaffold and still says so. There is no headless
   runner, and a fabricated visual score would be worse than a zero."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [gameka.build :as build]
             [gameka.catalog :as catalog]
             [gameka.cid :as cid]))
@@ -27,14 +27,14 @@
 (defn- input-value [m & ks] (some #(get m %) ks))
 
 (defn- slugify [s]
-  (let [x (-> (or s "game") str str/lower-case
+  (let [x (-> (or s "game") str str/lower
               (str/replace #"[^a-z0-9]+" "-")
               (str/replace #"(^-|-$)" ""))]
     (if (seq x) x "game")))
 
 (defn- title-from [brief]
   (let [s (str/trim (str brief))]
-    (if (seq s) (str/upper-case (subs s 0 (min 40 (count s)))) "UNTITLED GAME")))
+    (if (seq s) (str/upper (subs s 0 (min 40 (count s)))) "UNTITLED GAME")))
 
 (defn- health [_ _]
   {:ok true :status "ok" :app "gameka.gftd.ai" :impl "clj"})
