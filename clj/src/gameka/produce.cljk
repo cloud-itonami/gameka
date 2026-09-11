@@ -2,7 +2,7 @@
   "The producer the production loop calls: one gameSpec -> a build.
 
   ```
-  clojure -M:produce --spec survivors-zombie-v1 [--out target/gameka] [--legs legs.edn]
+  kbb -M:produce --spec survivors-zombie-v1 [--out target/gameka] [--legs legs.edn]
   ```
 
   Five steps, each of which reports what it actually did rather than whether

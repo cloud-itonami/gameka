@@ -15,7 +15,7 @@ Third of the three layers ADR-2607023000 defines for every creative `-ka`:
 ## What a build is
 
 ```bash
-clojure -M:produce --spec survivors-zombie-v1 --out target/gameka --legs legs.edn
+kbb -M:produce --spec survivors-zombie-v1 --out target/gameka --legs legs.edn
 ```
 
 1. read the spec from `specs/`
@@ -90,7 +90,7 @@ clj/       the graph server, build, and the murakumo/kotobase legs
 ```
 
 ```bash
-cd clj && clojure -M:test && clojure -M:lint
+cd clj && kbb -M:test && kbb -M:lint
 ```
 
 Environment: `MURAKUMO_GENERATION_TOKEN` (scope `generation`),

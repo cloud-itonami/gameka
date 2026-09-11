@@ -15,6 +15,6 @@ Surface:
 generator is wired.
 
 ```bash
-clojure -M:test
-PORT=8000 clojure -M:run
+kbb -M:test
+PORT=8000 kbb -M:run
 ```
