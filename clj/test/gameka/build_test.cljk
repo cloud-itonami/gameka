@@ -3,7 +3,7 @@
   exist to prevent was invisible precisely because nothing ever read a real
   spec."
   (:require [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is testing]]
+            [kotoba.test :refer [deftest is testing]]
             [gameka.build :as build]
             [gameka.catalog :as catalog]
             [gameka.graphs.registry :as reg]))

@@ -1,6 +1,6 @@
 (ns gameka.core-test
-  (:require [clojure.edn :as edn]
-            [clojure.test :refer [deftest is]]
+  (:require [kotoba.lang.edn :as edn]
+            [kotoba.test :refer [deftest is]]
             [gameka.cid :as cid]
             [gameka.graphs.registry :as reg]))
 

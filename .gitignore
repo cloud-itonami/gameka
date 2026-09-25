@@ -40,3 +40,4 @@ test-results/
 .cpcache/
 .clj-kondo/.cache/
 target/
+.nbb/
