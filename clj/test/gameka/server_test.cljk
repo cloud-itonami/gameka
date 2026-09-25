@@ -1,5 +1,5 @@
 (ns gameka.server-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [jsonista.core :as j]
             [gameka.server :as server]))
 

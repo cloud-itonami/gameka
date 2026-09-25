@@ -18,7 +18,7 @@
   passed down, never logged or written into an artifact. Its absence is a
   normal state, not an error: production degrades to a silent build and says
   so per leg."
-  (:require [clojure.java.io :as io]
+  (:require [kotoba.io :as kio] [clojure.java.io :as io]
             [kotoba.lang.text :as str]
             [jsonista.core :as j]
             [murakumo.generation :as gen]
@@ -27,7 +27,6 @@
            [java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
             HttpResponse$BodyHandlers]
            [java.security MessageDigest]
-           [java.nio.file Files]
            [java.time Duration]))
 
 (def ^:private mapper (j/object-mapper {:decode-key-fn true}))
@@ -77,7 +76,7 @@
 
 (defn sha256-hex [f]
   (let [d (.digest (MessageDigest/getInstance "SHA-256")
-                   (Files/readAllBytes (.toPath (io/file f))))]
+                   (kio/read-all-bytes (io/file f)))]
     (apply str (map #(format "%02x" (bit-and % 0xff)) d))))
 
 (defn opts

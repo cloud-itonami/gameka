@@ -12,7 +12,7 @@
   implementation the generation client verifies downloads against and the
   same one kotobase names objects by. One name across compute and storage;
   no second base32 to drift."
-  (:require [kotoba.lang.text :as str]
+  (:require [kotoba.bytes :as kbytes] [kotoba.lang.text :as str]
             [murakumo.generation.digest :as digest]))
 
 (def raw-cid
@@ -27,7 +27,7 @@
 
 (defn- sha256-bytes [s]
   #?(:clj (.digest (java.security.MessageDigest/getInstance "SHA-256")
-                   (.getBytes (str s) "UTF-8"))
+                   (kbytes/utf8-bytes (str s)))
      :cljs (throw (ex-info "gameka.cid: hashing a string needs a host digest under cljs"
                            {:input-length (count (str s))}))))
 

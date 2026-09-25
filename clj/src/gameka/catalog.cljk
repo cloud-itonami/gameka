@@ -7,7 +7,7 @@
   producer with cwd = the repo root (ADR-2800002700). `GAMEKA_ROOT` wins when
   set; otherwise the first ancestor of cwd that actually contains a `specs/`
   directory is used, so neither caller has to know about the other."
-  (:require [clojure.edn :as edn]
+  (:require [kotoba.lang.edn :as edn]
             [clojure.java.io :as io]
             [kotoba.lang.text :as str]))
 
