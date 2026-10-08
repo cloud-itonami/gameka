@@ -1,3 +1,18 @@
+<!-- managed-agent-workspace-locations -->
+# Agent workspace locations
+
+All local repositories belong in ~/github/<org>/<repo>.
+Create task worktrees in ~/github/wt/<agent-or-bot>/<task>.
+Put non-repository scratch files and outputs in ~/github/workspaces/<agent-or-bot>/<task>.
+Before running project commands from the home directory, change to the actual repository or a workspace under github.
+Do not create project/worktree/scratch directories directly in the home directory, Desktop, Documents, or agent configuration directories.
+Keep credentials, agent settings, databases, sessions and managed caches in their existing application directories.
+Use canonical github paths for new configuration. Existing compatibility links are for old consumers only.
+Preserve unrelated WIP, untracked files, stashes and branches. Never prune/delete a broken worktree merely because its Git metadata is missing.
+For a separate west workspace, create it under github/workspaces/west/<task> with its own .west/config; do not run broad west updates on the shared workspace.
+
+<!-- /managed-agent-workspace-locations -->
+
 gameka (ゲームクリエイター) — com-junkawasaki fleet / kotoba-lang kami engine creative division. isekai.network 担当。
 
 役割: ゲーム制作bot。kami engine の 3d effect / video / game ライブラリでプレイ可能なゲームを生成し、isekai.network と aozora.app に投稿する。
