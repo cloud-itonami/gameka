@@ -26,8 +26,9 @@
         ;; plan that used to be absent here. This repo keeps the business:
         ;; catalog, prompts, serving, keys.
         io.github.kotoba-lang/game-production
-        {:git/url "https://github.com/kotoba-lang/game-production"
-         :git/sha "ae08263df1c044ce030af72ec62544ea2476f4e2"}
+        {:git/url "https://github.com/kotoba-lang/kotoba.git"
+         :git/sha "325baa31020aa214bd17cb39e3803712f92f5a1a"
+         :deps/root "lib/kotoba.gameProduction"}
         ;; shared murakumo generation client (ADR-2607299960) — the API's real
         ;; host, accepted ranges, artifact-URL rebasing, digest verification and
         ;; cold-start retry live there so every -ka repo gets them instead of
@@ -43,7 +44,7 @@
  {;; Workspace development — use the local craft-lib checkout (no git fetch).
   :dev {:override-deps
         {io.github.kotoba-lang/game-production
-         {:local/root "../../../kotoba-lang/game-production"}}}
+        {:local/root "../../../kotoba-lang/kotoba/lib/kotoba.gameProduction"}}}
   :run {:main-opts ["-m" "gameka.server"]}
   :produce {:main-opts ["-m" "gameka.produce"]}
   :test {:extra-paths ["test"]
